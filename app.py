@@ -7,6 +7,8 @@ from booking import BookingWindow
 from booking_history import BookingHistoryWindow
 from reports import ReportsWindow
 from campus_bookings import CampusBookingsWindow
+from all_bookings import AllBookingsWindow
+from booking_management import BookingService
 
 from campus_booking_system import (
     create_tables,
@@ -24,12 +26,16 @@ from users import (
 
 DATABASE_FILE = Path(__file__).resolve().parent / "campus_booking.db"
 
+ALL_CAMPUSES = "All campuses"
+
 
 class CampusBookingApp:
 
 
     def open_resource_manager(self):
-        ResourceManagerWindow(self.root, self.current_user)
+        ResourceManagerWindow(
+            self.root, self.current_user, self.active_campus_id
+        )
 
     def open_reports_window(self):
         if self.current_user.role not in ("administrator", "operator"):
@@ -43,7 +49,6 @@ class CampusBookingApp:
         ReportsWindow(self.root, self.current_user)
 
     def open_booking_history(self):
-        """Open the signed-in lecturer's booking history."""
         if self.current_user.role != "lecturer":
             messagebox.showinfo(
                 "Lecturer Access Only",
@@ -54,7 +59,6 @@ class CampusBookingApp:
         BookingHistoryWindow(self.root, self.current_user)
 
     def open_campus_bookings(self):
-        """Open the administrator's campus-scoped booking list."""
         if self.current_user.role != "administrator":
             messagebox.showerror(
                 "Access Denied",
@@ -63,8 +67,19 @@ class CampusBookingApp:
             return
         CampusBookingsWindow(self.root, self.current_user)
 
+    def open_all_bookings(self):
+        if self.current_user.role != "operator":
+            messagebox.showerror(
+                "Access Denied",
+                "Only system operators can view bookings "
+                "across all campuses."
+            )
+            return
+        AllBookingsWindow(
+            self.root, self.current_user, self.active_campus_id
+        )
+
     def open_booking_window(self):
-        """Open the booking window for the signed-in user."""
         if self.current_user.role != "lecturer":
             messagebox.showinfo(
                 "Lecturer Access Only",
@@ -76,33 +91,30 @@ class CampusBookingApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Smart Campus Resource Booking System")
-        self.root.geometry("650x500")
-        self.root.minsize(550, 420)
+        self.root.geometry("650x720")
+        self.root.minsize(550, 640)
 
         self.current_user = None
+        self.active_campus_id = None
         self.campus_map = {}
 
         self.setup_database()
         self.show_login()
 
     def connect_database(self):
-        """Open a database connection with foreign keys enabled."""
         connection = sqlite3.connect(DATABASE_FILE)
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
     def setup_database(self):
-        """Prepare the tables and initial campus records."""
         create_tables()
         add_sample_campuses()
 
     def clear_window(self):
-        """Remove the current screen's widgets."""
         for widget in self.root.winfo_children():
             widget.destroy()
 
     def get_campuses(self):
-        """Return campus IDs and names from the database."""
         with self.connect_database() as connection:
             return connection.execute("""
                 SELECT campus_id, campus_name
@@ -111,7 +123,6 @@ class CampusBookingApp:
             """).fetchall()
 
     def make_heading(self, heading, subtitle):
-        """Display a consistent heading on each screen."""
         ttk.Label(
             self.root,
             text=heading,
@@ -125,7 +136,6 @@ class CampusBookingApp:
         ).pack(pady=(0, 15))
 
     def show_login(self):
-        """Display the login screen."""
         self.clear_window()
         self.make_heading(
             "Smart Campus Resource Booking System",
@@ -164,7 +174,6 @@ class CampusBookingApp:
         self.login_username.focus_set()
 
     def show_registration(self):
-        """Display the lecturer registration form."""
         self.clear_window()
         self.make_heading(
             "Create a Lecturer Account",
@@ -235,7 +244,6 @@ class CampusBookingApp:
         ).grid(row=6, column=0, columnspan=2)
 
     def register(self):
-        """Validate and save a new lecturer account."""
         full_name = self.reg_name.get().strip()
         username = self.reg_username.get().strip().lower()
         password = self.reg_password.get()
@@ -318,7 +326,6 @@ class CampusBookingApp:
             )
 
     def login(self):
-        """Authenticate a user and open their role-specific screen."""
         username = self.login_username.get().strip().lower()
         password = self.login_password.get()
 
@@ -380,11 +387,137 @@ class CampusBookingApp:
         )
 
         self.current_user_id = user_id
+        self.active_campus_id = None
+
+        self.show_campus_selection()
+
+    def show_campus_selection(self):
+        self.clear_window()
+        user = self.current_user
+
+        self.make_heading(
+            "Select a Campus",
+            f"Welcome, {user.full_name}. "
+            "Choose the campus you want to work with."
+        )
+
+        campuses = self.get_campuses()
+        self.campus_map = {name: campus_id for campus_id, name in campuses}
+        names = list(self.campus_map.keys())
+
+        if user.can_view_all_campuses():
+            names = [ALL_CAMPUSES] + names
+
+        form = ttk.Frame(self.root, padding=20)
+        form.pack()
+
+        ttk.Label(form, text="Campus:").grid(
+            row=0, column=0, sticky="w", pady=8
+        )
+        self.campus_choice = ttk.Combobox(
+            form, values=names, state="readonly", width=34
+        )
+        self.campus_choice.grid(row=0, column=1, pady=8)
+        self.campus_choice.bind(
+            "<<ComboboxSelected>>", self.update_selection_policy
+        )
+
+        home_name = next(
+            (
+                name for name, campus_id in self.campus_map.items()
+                if campus_id == user.campus_id
+            ),
+            None
+        )
+        if home_name:
+            self.campus_choice.set(home_name)
+        elif user.can_view_all_campuses():
+            self.campus_choice.set(ALL_CAMPUSES)
+        elif names:
+            self.campus_choice.set(names[0])
+
+        may_choose = all(
+            user.can_select_campus(campus_id)
+            for campus_id in self.campus_map.values()
+        )
+        if not may_choose:
+            self.campus_choice.configure(state="disabled")
+            ttk.Label(
+                form,
+                text="Your account is assigned to this campus.",
+                font=("Arial", 9, "italic")
+            ).grid(row=1, column=0, columnspan=2)
+
+        self.selection_policy_label = ttk.Label(
+            self.root, text="", wraplength=520, justify="center"
+        )
+        self.selection_policy_label.pack(pady=10)
+        self.update_selection_policy()
+
+        ttk.Button(
+            self.root,
+            text="Continue",
+            command=self.confirm_campus
+        ).pack(pady=10)
+
+        ttk.Button(
+            self.root,
+            text="Log Out",
+            command=self.logout
+        ).pack(pady=5)
+
+    def update_selection_policy(self, event=None):
+        choice = self.campus_choice.get()
+
+        if choice == ALL_CAMPUSES:
+            text = (
+                "Viewing all campuses. Each campus applies its own "
+                "booking policy."
+            )
+        else:
+            campus_id = self.campus_map.get(choice)
+            policy = (
+                BookingService().get_policy(campus_id)
+                if campus_id is not None else None
+            )
+            text = (
+                "Booking policy in effect - " + policy.describe()
+                if policy else ""
+            )
+
+        self.selection_policy_label.config(text=text)
+
+    def confirm_campus(self):
+        user = self.current_user
+        choice = self.campus_choice.get()
+
+        if not choice:
+            messagebox.showerror(
+                "Select a Campus", "Please choose a campus to continue."
+            )
+            return
+
+        if choice == ALL_CAMPUSES:
+            if not user.can_view_all_campuses():
+                messagebox.showerror(
+                    "Access Denied",
+                    "Your role cannot work across all campuses."
+                )
+                return
+            self.active_campus_id = None
+        else:
+            campus_id = self.campus_map.get(choice)
+            if campus_id is None or not user.can_select_campus(campus_id):
+                messagebox.showerror(
+                    "Access Denied",
+                    "You cannot work on that campus."
+                )
+                return
+            self.active_campus_id = campus_id
 
         self.show_dashboard()
 
     def show_dashboard(self):
-        """Display a dashboard based on the authenticated role."""
         self.clear_window()
 
         user = self.current_user
@@ -400,23 +533,28 @@ class CampusBookingApp:
             f"Welcome, {user.full_name}"
         )
 
-        campus_name = "All campuses"
-
-        if user.campus_id is not None:
-            with self.connect_database() as connection:
-                row = connection.execute("""
-                    SELECT campus_name
-                    FROM campuses
-                    WHERE campus_id = ?
-                """, (user.campus_id,)).fetchone()
-
-            if row:
-                campus_name = row[0]
+        policy = (
+            BookingService().get_policy(self.active_campus_id)
+            if self.active_campus_id is not None else None
+        )
+        campus_name = policy.campus_name if policy else ALL_CAMPUSES
 
         ttk.Label(
             self.root,
-            text=f"Home campus: {campus_name}"
+            text=f"Active campus: {campus_name}",
+            font=("Arial", 12, "bold")
         ).pack(pady=5)
+
+        ttk.Label(
+            self.root,
+            text=(
+                f"Booking policy in effect - {policy.describe()}"
+                if policy else
+                "Each campus applies its own booking policy."
+            ),
+            wraplength=520,
+            justify="center"
+        ).pack(pady=2)
 
         ttk.Label(
             self.root,
@@ -462,6 +600,13 @@ class CampusBookingApp:
                 command=self.open_campus_bookings
             ).pack(pady=5)
 
+        if user.role == "operator":
+            ttk.Button(
+                self.root,
+                text="View Bookings Across All Campuses",
+                command=self.open_all_bookings
+            ).pack(pady=5)
+
         ttk.Button(
             self.root,
             text="View My Bookings and History",
@@ -476,6 +621,12 @@ class CampusBookingApp:
 
         ttk.Button(
             self.root,
+            text="Change Campus",
+            command=self.show_campus_selection
+        ).pack(pady=5)
+
+        ttk.Button(
+            self.root,
             text="Log Out",
             command=self.logout
         ).pack(pady=10)
@@ -483,6 +634,7 @@ class CampusBookingApp:
 
     def logout(self):
         self.current_user = None
+        self.active_campus_id = None
         self.show_login()
 
 

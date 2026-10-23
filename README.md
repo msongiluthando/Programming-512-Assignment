@@ -8,7 +8,7 @@ The application supports three user roles:
 
 - **Lecturer:** can view resources, make bookings, and view/cancel eligible bookings.
 - **Campus administrator:** manages resources and views information for the administrator's assigned campus.
-- **System operator:** has system-wide access to booking and resource information and reports.
+- **System operator:** has system-wide access to booking and resource information, an all-campus bookings list, and comparative reports with monthly trends.
 
 ## 2. Technologies
 
@@ -21,26 +21,38 @@ The project does not require third-party Python packages for the functionality d
 
 ## 3. Source files
 
-### `auth_app.py`
+### `app.py`
 The main entry point. It provides authentication, registration/dashboard flow, role-aware navigation, and opens the booking, resource-management, booking-history, and reports windows. Run this file to start the application.
 
 ### `users.py`
-Defines the user classes and role-specific permissions. It includes password hashing and password verification.
+Defines the user classes (`User`, `Lecturer`, `CampusAdministrator`, `SystemOperator`) using inheritance, with private attributes exposed through read-only properties (encapsulation). Each role defines its own permissions and which campuses it may work on. Also includes salted PBKDF2 password hashing and verification.
 
 ### `campus_booking_system.py`
 Contains database setup/helper logic for campuses, resources, users, and bookings. Do not run setup routines casually against the submitted database; inspect the code and back up the database first if changing stored data.
 
 ### `booking.py`
-Provides the Tkinter interface for selecting a campus/resource and entering booking details.
+Provides the Tkinter interface for selecting a campus/resource and entering booking details. Campus opening hours and maximum duration are checked automatically when the booking is created.
+
+### `booking_policy.py`
+Defines the `CampusPolicy` class, which holds each campus's booking rules and is applied by `BookingService` (maximum duration and booking hours). Rules are kept separate from the core booking logic. A new campus only needs a new row in the `campuses` table, and a new rule only needs a new method added to `CampusPolicy._rules`.
+
+### `test_booking_rules.py`
+Automated tests (Python `unittest`) for booking rules, overlap prevention, availability and time storage. They run against a temporary database, so `campus_booking.db` is never changed.
 
 ### `booking_management.py`
-Contains booking-service logic, including booking creation and checks intended to prevent overlapping bookings.
+Contains booking-service logic: booking creation, overlap prevention, and availability calculation. Campus-specific rules are applied through `CampusPolicy`.
 
 ### `booking_history.py`
 Displays booking history and supports cancellation of eligible future bookings while retaining cancelled records in the database.
 
 ### `reports.py`
-Displays booking totals, active/cancelled counts, average booking duration, and resource-use information, with access restricted by role/campus.
+Displays campus reports in four tabs: **Campus Comparison** (total, active and cancelled bookings, average duration, and each campus's booking policy), **Resource Usage** (most frequently used resources), **Monthly Trends** (bookings per month and how much of each campus's maximum booking length is used, which shows the effect of campus-specific rules) and **Busiest Days** (active bookings by day of the week). Campus administrators see only their own campus; system operators see all campuses.
+
+### `report_queries.py`
+The SQL behind the all-bookings list and the trend reports, kept separate from the GUI so it can be tested.
+
+### `all_bookings.py`
+System-operator screen listing bookings from every campus, with a campus filter and a summary of active and cancelled counts.
 
 ### `resource_management.py`
 Provides the resource-management interface for adding, updating, and removing resources according to role permissions.
@@ -51,13 +63,15 @@ A command-line helper for creating staff accounts such as campus administrators 
 ### `campus_booking.db`
 The SQLite database containing the current campus, user, resource, and booking records. It is included with the project so the existing data is preserved.
 
+
 ## 4. How the application works
 
-1. Start the program from `auth_app.py`.
-2. Register or sign in with an account.
-3. The application uses the account's role and campus assignment to determine available actions.
-4. Users open the booking, resource-management, history, or reports windows that their role permits.
-5. Booking and resource information is saved in `campus_booking.db` so it remains available after the application closes.
+1. Start the program from `app.py`.
+2. Register as a lecturer or sign in with an existing account.
+3. **Select a campus.** After login every user chooses the campus to work with. Lecturers can choose any campus, campus administrators are locked to their assigned campus, and system operators can choose one campus or "All campuses". The booking policy of the highlighted campus is shown on this screen.
+4. The dashboard clearly shows the **active campus** and the **booking policy in effect**. Use **Change Campus** to switch.
+5. Open the booking, resource-management, booking-history, all-bookings or reports windows that your role permits. The resource-management and all-bookings windows start on the active campus.
+6. Everything is saved in `campus_booking.db`, so it remains available after the application closes.
 
 ## 5. Run the application
 
@@ -65,7 +79,7 @@ The SQLite database containing the current campus, user, resource, and booking r
 2. Extract the project folder from the ZIP file.
 3. Open the extracted folder in PyCharm or another Python IDE.
 4. Select a compatible Python 3 interpreter.
-5. Open `auth_app.py` and run it.
+5. Open `app.py` and run it.
 6. Sign in using an existing account and check the actions available to that role.
 
 The application uses Python's standard library and SQLite, so a separate `pip install` step should not normally be required.
@@ -78,16 +92,6 @@ The application uses Python's standard library and SQLite, so a separate `pip in
 - Before making any manual database changes, make a backup copy of the database.
 - Do not run database setup or staff-account helper scripts unless you intend to perform those operations.
 
-## 7. Development test results
-
-The following functional tests were reported as passing during development:
-
-- Booking creation, rejection of overlapping bookings, and persistence after restart.
-- Booking-history display, cancellation of eligible future bookings, retention of cancelled records, and persistence after restart.
-- Campus administrator and system operator report access, booking counts, average duration, resource ranking, and refresh behaviour.
-- Integration checks covering startup, role permissions, campus policies, booking conflict prevention, cancellation, persistence, reports, and basic error handling.
-
-These are development test results reported by the project developer. A final live GUI run should still be performed on the target Windows computer before submission.
 
 ## GitHub Repository
 `Repository Link: https://github.com/msongiluthando/Programming-512-Assignment`

@@ -8,17 +8,15 @@ DATABASE_FILE = Path(__file__).resolve().parent / "campus_booking.db"
 
 
 class ResourceManagerWindow:
-    """Display campus resources and enforce role-based access."""
 
-    def __init__(self, parent, user):
+    def __init__(self, parent, user, active_campus_id=None):
         self.user = user
+        self.active_campus_id = active_campus_id
         self.window = tk.Toplevel(parent)
         self.window.title("Campus Resource Management")
         self.window.geometry("850x560")
         self.window.minsize(700, 450)
 
-        # Administrators can manage resources only at their campus.
-        # Lecturers and operators can view resources.
         self.can_manage = user.role == "administrator"
 
         self.campus_map = {}
@@ -181,7 +179,6 @@ class ResourceManagerWindow:
             )
 
             if self.user.role == "administrator":
-                # Administrators must stay within their assigned campus.
                 assigned = next(
                     (
                         name for name, campus_id
@@ -203,10 +200,22 @@ class ResourceManagerWindow:
                 self.campus_selector.configure(state="disabled")
 
             elif self.campus_map:
-                # Lecturers and operators may select a campus to view.
-                self.campus_selector.set(
-                    next(iter(self.campus_map))
+                active_name = next(
+                    (
+                        name for name, campus_id
+                        in self.campus_map.items()
+                        if campus_id == self.active_campus_id
+                    ),
+                    None
                 )
+
+                if active_name:
+                    self.campus_selector.set(active_name)
+                    self.campus_selector.configure(state="disabled")
+                else:
+                    self.campus_selector.set(
+                        next(iter(self.campus_map))
+                    )
 
             self.load_resources()
 
@@ -278,7 +287,6 @@ class ResourceManagerWindow:
         self.resource_type_entry.insert(0, values[2])
 
         if self.can_manage:
-            # Existing IDs cannot be edited because bookings may refer to them.
             self.resource_id_entry.configure(state="disabled")
 
     def clear_fields(self):

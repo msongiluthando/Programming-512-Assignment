@@ -1,24 +1,19 @@
 import sqlite3
 from pathlib import Path
 
-# Create a database file inside the project folder
 PROJECT_FOLDER = Path(__file__).resolve().parent
 DATABASE_FILE = PROJECT_FOLDER / "campus_booking.db"
 
 
 def connect_database():
-    """Connect to the SQLite database."""
     connection = sqlite3.connect(DATABASE_FILE)
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
 def create_tables():
-    """Create the tables needed by the booking system."""
-
     with connect_database() as connection:
 
-        # Store users and their roles
         connection.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +33,6 @@ def create_tables():
             )
         """)
 
-        # Store campuses and their booking policies
         connection.execute("""
             CREATE TABLE IF NOT EXISTS campuses (
                 campus_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +43,6 @@ def create_tables():
             )
         """)
 
-        # Store resources belonging to campuses
         connection.execute("""
             CREATE TABLE IF NOT EXISTS resources (
                 resource_id TEXT PRIMARY KEY,
@@ -61,7 +54,6 @@ def create_tables():
             )
         """)
 
-        # Store bookings made by lecturers
         connection.execute("""
             CREATE TABLE IF NOT EXISTS bookings (
                 booking_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,7 +75,6 @@ def create_tables():
             )
         """)
 
-        # Add indexes to speed up common booking searches
         connection.execute("""
             CREATE INDEX IF NOT EXISTS idx_booking_resource_date
             ON bookings(resource_id, booking_date, status)
@@ -93,7 +84,6 @@ def create_tables():
 
 
 def add_sample_campuses():
-    """Add three campuses with different booking policies."""
 
     campuses = [
         ("Durban Campus", 120, "08:00", "17:00"),
@@ -112,7 +102,6 @@ def add_sample_campuses():
 
 
 def show_campuses():
-    """Display all campuses and their booking policies."""
 
     with connect_database() as connection:
         rows = connection.execute("""

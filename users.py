@@ -2,8 +2,8 @@ import hashlib
 import hmac
 import secrets
 
+
 def hash_password(password):
-    """Convert a password into a salted hash for storage."""
     salt = secrets.token_bytes(16)
 
     password_hash = hashlib.pbkdf2_hmac(
@@ -17,7 +17,7 @@ def hash_password(password):
 
 
 def verify_password(password, stored_hash):
-    """Check a password against its stored salted hash."""
+
     try:
         salt_hex, hash_hex = stored_hash.split("$")
         salt = bytes.fromhex(salt_hex)
@@ -31,22 +31,37 @@ def verify_password(password, stored_hash):
 
         return hmac.compare_digest(new_hash.hex(), hash_hex)
 
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         return False
 
 
-
 class User:
+
     def __init__(
             self, full_name, username, password_hash,
             campus_id=None, user_id=None
     ):
-        self.user_id = user_id
-        self.full_name = full_name
-        self.username = username
-        self._User__password_hash = password_hash
-        self.campus_id = campus_id
+        self.__user_id = user_id
+        self.__full_name = full_name
+        self.__username = username
+        self.__password_hash = password_hash
+        self.__campus_id = campus_id
 
+    @property
+    def user_id(self):
+        return self.__user_id
+
+    @property
+    def full_name(self):
+        return self.__full_name
+
+    @property
+    def username(self):
+        return self.__username
+
+    @property
+    def campus_id(self):
+        return self.__campus_id
 
     @property
     def role(self):
@@ -58,9 +73,17 @@ class User:
     def get_permissions(self):
         return ["view_profile"]
 
+    def can_select_campus(self, campus_id):
+        return campus_id is not None and campus_id == self.__campus_id
+
+    def can_view_all_campuses(self):
+        return False
+
+    def __repr__(self):
+        return f"{type(self).__name__}(username={self.__username!r})"
+
 
 class Lecturer(User):
-    """A lecturer can manage their own resource bookings."""
 
     @property
     def role(self):
@@ -74,9 +97,11 @@ class Lecturer(User):
             "cancel_own_future_booking"
         ]
 
+    def can_select_campus(self, campus_id):
+        return campus_id is not None
+
 
 class CampusAdministrator(User):
-    """An administrator manages resources at their campus."""
 
     @property
     def role(self):
@@ -91,7 +116,6 @@ class CampusAdministrator(User):
 
 
 class SystemOperator(User):
-    """An operator can access system-wide information."""
 
     @property
     def role(self):
@@ -105,9 +129,14 @@ class SystemOperator(User):
             "compare_campus_reports"
         ]
 
+    def can_select_campus(self, campus_id):
+        return campus_id is not None
+
+    def can_view_all_campuses(self):
+        return True
+
 
 if __name__ == "__main__":
-    # Test password hashing and verification
     saved_hash = hash_password("ExamplePass123!")
 
     print("Correct password:", verify_password(
@@ -117,7 +146,6 @@ if __name__ == "__main__":
         "WrongPassword", saved_hash
     ))
 
-    # Test inheritance and role-specific permissions
     lecturer = Lecturer(
         "Test Lecturer", "lecturer1", saved_hash, campus_id=1
     )

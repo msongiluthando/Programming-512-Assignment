@@ -3,6 +3,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 
+from report_queries import fetch_monthly_trends, fetch_weekday_usage
+
 DATABASE_FILE = Path(__file__).resolve().parent / "campus_booking.db"
 
 
@@ -37,15 +39,24 @@ class ReportsWindow:
             self.resources_tab, text="Resource Usage"
         )
 
+        self.trends_tab = ttk.Frame(self.notebook)
+        self.weekday_tab = ttk.Frame(self.notebook)
+        self.notebook.add(
+            self.trends_tab, text="Monthly Trends"
+        )
+        self.notebook.add(
+            self.weekday_tab, text="Busiest Days"
+        )
+
         self.summary_tree = self.make_tree(
             self.summary_tab,
             (
-                "campus", "total", "active",
+                "campus", "max_duration", "hours", "total", "active",
                 "cancelled", "average"
             ),
             (
-                "Campus", "Total Bookings", "Active",
-                "Cancelled", "Average Duration (min)"
+                "Campus", "Max Duration (min)", "Booking Hours", "Total Bookings",
+                "Active", "Cancelled", "Average Duration (min)"
             )
         )
 
@@ -60,6 +71,34 @@ class ReportsWindow:
                 "Active Bookings", "Average Duration (min)"
             )
         )
+
+        self.trend_tree = self.make_tree(
+            self.trends_tab,
+            (
+                "campus", "month", "active", "cancelled",
+                "average", "percent_of_max"
+            ),
+            (
+                "Campus", "Month", "Active Bookings", "Cancelled",
+                "Average Duration (min)", "Avg % of Campus Max Duration"
+            )
+        )
+
+        self.weekday_tree = self.make_tree(
+            self.weekday_tab,
+            ("campus", "weekday", "total"),
+            ("Campus", "Day of Week", "Active Bookings")
+        )
+
+        ttk.Label(
+            self.trends_tab,
+            text=(
+                "The last column shows how much of each campus's "
+                "maximum booking length is used on average, so the "
+                "effect of campus-specific rules can be compared."
+            ),
+            wraplength=900
+        ).pack(pady=(0, 8))
 
         ttk.Button(
             self.window,
@@ -99,14 +138,16 @@ class ReportsWindow:
         return tree
 
     def load_reports(self):
-        for tree in (self.summary_tree, self.resource_tree):
+        for tree in (
+            self.summary_tree, self.resource_tree,
+            self.trend_tree, self.weekday_tree
+        ):
             for item in tree.get_children():
                 tree.delete(item)
 
         try:
             with self.connect_database() as connection:
 
-                # Restrict campus administrators to their own campus.
                 if self.user.role == "administrator":
                     campus_filter = "WHERE c.campus_id = ?"
                     params = (self.user.campus_id,)
@@ -132,6 +173,8 @@ class ReportsWindow:
                 summary_sql = f"""
                     SELECT
                         c.campus_name,
+                        c.max_duration,
+                        c.opening_time || '–' || c.closing_time,
                         COUNT(b.booking_id),
                         COALESCE(SUM(
                             CASE WHEN b.status = 'active'
@@ -185,17 +228,26 @@ class ReportsWindow:
                     resource_sql, params
                 ).fetchall()
 
+                trend_campus = (
+                    self.user.campus_id
+                    if self.user.role == "administrator" else None
+                )
+                trend_rows = fetch_monthly_trends(
+                    connection, trend_campus
+                )
+                weekday_rows = fetch_weekday_usage(
+                    connection, trend_campus
+                )
+
             for row in summary_rows:
                 average = (
-                    f"{row[4]:.1f}" if row[4] is not None
+                    f"{row[6]:.1f}" if row[6] is not None
                     else "N/A"
                 )
 
                 self.summary_tree.insert(
                     "", "end",
-                    values=(
-                        row[0], row[1], row[2], row[3], average
-                    )
+                    values=(row[0], row[1], row[2], row[3], row[4], row[5], average)
                 )
 
             for row in resource_rows:
@@ -206,10 +258,21 @@ class ReportsWindow:
 
                 self.resource_tree.insert(
                     "", "end",
+                    values=(row[0], row[1], row[2], row[3], average)
+                )
+
+            for campus, month, active, cancelled, average, percent in trend_rows:
+                self.trend_tree.insert(
+                    "", "end",
                     values=(
-                        row[0], row[1], row[2], row[3], average
+                        campus, month, active, cancelled,
+                        f"{average:.1f}" if average is not None else "N/A",
+                        f"{percent:.0f}%" if percent is not None else "N/A"
                     )
                 )
+
+            for row in weekday_rows:
+                self.weekday_tree.insert("", "end", values=row)
 
         except sqlite3.Error as error:
             messagebox.showerror(
